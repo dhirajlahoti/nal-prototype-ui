@@ -54,12 +54,31 @@ INDEX_HTML = """
       document.getElementById("runBtn").disabled = true;
       document.getElementById("runBtn").innerText = "Running...";
     }
+
+    function hideProgress() {
+      document.getElementById("progress").style.display = "none";
+      document.getElementById("runBtn").disabled = false;
+      document.getElementById("runBtn").innerText = "Run";
+    }
+
+    window.onload = function () {
+      const iframe = document.getElementById("downloadFrame");
+      let firstLoad = true;
+
+      iframe.onload = function () {
+        if (firstLoad) {
+          firstLoad = false;
+          return;
+        }
+        hideProgress();
+      };
+    };
   </script>
 </head>
 <body>
   <h2>NAL Pipeline Prototype</h2>
 
-  <form action="/process" method="post" enctype="multipart/form-data" onsubmit="showProgress()">
+  <form action="/process" method="post" enctype="multipart/form-data" target="downloadFrame" onsubmit="showProgress()">
     <label>Research Question</label><br/>
     <input name="question" type="text" required style="width: 500px;" /><br/><br/>
 
@@ -73,6 +92,8 @@ INDEX_HTML = """
     Processing documents... this may take a minute
     <span class="spinner"></span>
   </div>
+
+  <iframe id="downloadFrame" name="downloadFrame" style="display:none;"></iframe>
 </body>
 </html>
 """
