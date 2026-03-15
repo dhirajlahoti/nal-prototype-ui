@@ -19,16 +19,61 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 INDEX_HTML = """
 <!doctype html>
 <html>
-  <body>
-    <h2>NAL Pipeline Prototype</h2>
-    <form action="/process" method="post" enctype="multipart/form-data">
-      <label>Research Question</label><br/>
-      <input name="question" type="text" required /><br/><br/>
-      <label>Upload CSV</label><br/>
-      <input name="file" type="file" accept=".csv" required /><br/><br/>
-      <button type="submit">Run</button>
-    </form>
-  </body>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    #progress {
+      display: none;
+      margin-top: 20px;
+      font-weight: bold;
+    }
+    .spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #3498db;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-left: 10px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    button {
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+  </style>
+
+  <script>
+    function showProgress() {
+      document.getElementById("progress").style.display = "block";
+      document.getElementById("runBtn").disabled = true;
+      document.getElementById("runBtn").innerText = "Running...";
+    }
+  </script>
+</head>
+<body>
+  <h2>NAL Pipeline Prototype</h2>
+
+  <form action="/process" method="post" enctype="multipart/form-data" onsubmit="showProgress()">
+    <label>Research Question</label><br/>
+    <input name="question" type="text" required style="width: 500px;" /><br/><br/>
+
+    <label>Upload CSV</label><br/>
+    <input name="file" type="file" accept=".csv" required /><br/><br/>
+
+    <button id="runBtn" type="submit">Run</button>
+  </form>
+
+  <div id="progress">
+    Processing documents... this may take a minute
+    <span class="spinner"></span>
+  </div>
+</body>
 </html>
 """
 
@@ -39,21 +84,19 @@ def index():
 
 def score_dataframe_parallel(df: pd.DataFrame, question: str) -> pd.DataFrame:
     # ---------------- CONFIG ----------------
-    MAX_WORKERS   = 8            # parallel threads
-    RPS           = 4            # global requests-per-second across ALL threads
-    MAX_TRIES     = 3            # retries per row on failure
-    BASE_BACKOFF  = 0.5          # base delay for exponential backoff (+ jitter)
-    MODEL         = "gpt-5-mini" # faster for big files; change to "gpt-5" if needed
-    MAX_COMP_TOK  = 200          # keep small: we only need 0-3
+    MAX_WORKERS   = 8
+    RPS           = 4
+    MAX_TRIES     = 3
+    BASE_BACKOFF  = 0.5
+    MODEL         = "gpt-5-mini"
+    MAX_COMP_TOK  = 200
     # ----------------------------------------
 
-    # Validate columns
     required = ["Title", "Abstract Note"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}. Found: {list(df.columns)}")
 
-    # ---- Prompt template ----
     prompt = """
 You are a research literature relevance evaluator.
 
@@ -77,7 +120,6 @@ Document:
 
     SYSTEM_MSG = "Return only one digit 0-3. No explanation."
 
-    # ---- Global RPS limiter ----
     lock = threading.Lock()
     next_ok_time = time.time()
 
@@ -91,7 +133,6 @@ Document:
                 now = next_ok_time
             next_ok_time = now + min_interval
 
-    # Ensure 0..N-1 integer index for stable assignment
     df2 = df.reset_index(drop=True)
     N = len(df2)
     scores = [0] * N
@@ -131,7 +172,6 @@ Document:
         for fut in as_completed(futures):
             i, score, err = fut.result()
             scores[i] = score
-            # If you want, you can log errors to stdout (Render logs):
             if err is not None:
                 print(f"Row {i+1} error: {err}")
 
@@ -142,15 +182,13 @@ Document:
 
 @app.post("/process")
 async def process(question: str = Form(...), file: UploadFile = File(...)):
-    # Basic file validation
     if not (file.filename or "").lower().endswith(".csv"):
         return PlainTextResponse("Please upload a .csv file", status_code=400)
 
     raw = await file.read()
     df = pd.read_csv(io.BytesIO(raw))
 
-    # Demo safety net to avoid timeouts on Render Free:
-    # Increase if you want, but start small for reliability.
+    # Demo safety limit for Render free tier
     df = df.head(500)
 
     out_df = score_dataframe_parallel(df, question)
