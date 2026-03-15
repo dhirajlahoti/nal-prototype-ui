@@ -46,41 +46,63 @@ INDEX_HTML = """
       padding: 8px 14px;
       cursor: pointer;
     }
+    input[type="text"] {
+      width: 500px;
+    }
   </style>
 
   <script>
-    function showProgress() {
-      document.getElementById("progress").style.display = "block";
-      document.getElementById("runBtn").disabled = true;
-      document.getElementById("runBtn").innerText = "Running...";
-    }
+    async function submitForm(event) {
+      event.preventDefault();
 
-    function hideProgress() {
-      document.getElementById("progress").style.display = "none";
-      document.getElementById("runBtn").disabled = false;
-      document.getElementById("runBtn").innerText = "Run";
-    }
+      const form = document.getElementById("uploadForm");
+      const progress = document.getElementById("progress");
+      const runBtn = document.getElementById("runBtn");
 
-    window.onload = function () {
-      const iframe = document.getElementById("downloadFrame");
-      let firstLoad = true;
+      progress.style.display = "block";
+      runBtn.disabled = true;
+      runBtn.innerText = "Running...";
 
-      iframe.onload = function () {
-        if (firstLoad) {
-          firstLoad = false;
-          return;
+      try {
+        const formData = new FormData(form);
+
+        const response = await fetch("/process", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(errText || "Request failed");
         }
-        hideProgress();
-      };
-    };
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "output.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        alert("Error: " + err.message);
+      } finally {
+        progress.style.display = "none";
+        runBtn.disabled = false;
+        runBtn.innerText = "Run";
+      }
+    }
   </script>
 </head>
 <body>
   <h2>NAL Pipeline Prototype</h2>
 
-  <form action="/process" method="post" enctype="multipart/form-data" target="downloadFrame" onsubmit="showProgress()">
+  <form id="uploadForm" onsubmit="submitForm(event)" enctype="multipart/form-data">
     <label>Research Question</label><br/>
-    <input name="question" type="text" required style="width: 500px;" /><br/><br/>
+    <input name="question" type="text" required /><br/><br/>
 
     <label>Upload CSV</label><br/>
     <input name="file" type="file" accept=".csv" required /><br/><br/>
@@ -92,8 +114,6 @@ INDEX_HTML = """
     Processing documents... this may take a minute
     <span class="spinner"></span>
   </div>
-
-  <iframe id="downloadFrame" name="downloadFrame" style="display:none;"></iframe>
 </body>
 </html>
 """
